@@ -1,89 +1,144 @@
 import logging
-import requests
-import json
-from datetime import datetime
-from homeassistant.helpers.entity import Entity
+from aiohttp import ClientSession
+from collections import defaultdict
+from datetime import datetime, timedelta
+from typing import Any
+
+import voluptuous as vol
+
+import homeassistant.helpers.config_validation as cv
+from homeassistant.components.sensor import PLATFORM_SCHEMA
 from homeassistant.const import CONF_USERNAME, CONF_PASSWORD
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.entity import Entity
+from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.typing import ConfigType
 
-log = logging.getLogger(__name__)
+from .const import CONF_TIME_PERIOD, DOMAIN, LOGIN_ENDPOINT, METER_DATA_ENDPOINT
 
-DOMAIN = "hydrolink"
-API_BASE_URL = "https://hydrolink.fi/api/v2"
-LOGIN_ENDPOINT = f"{API_BASE_URL}/login"
-METER_DATA_ENDPOINT = f"{API_BASE_URL}/getResidentMeterData"
+_LOGGER = logging.getLogger(__name__)
 
-def setup_platform(hass, config, add_entities, discovery_info=None):
+
+PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
+    {
+        vol.Required(CONF_USERNAME): cv.string,
+        vol.Required(CONF_PASSWORD): cv.string,
+        vol.Optional(CONF_TIME_PERIOD, default=7): cv.positive_int,
+    }
+)
+
+
+async def async_setup_platform(hass: HomeAssistant, config: ConfigType, async_add_entities, discovery_info=None) -> True:
     """Set up the Hydrolink sensor platform."""
-    username = config.get(CONF_USERNAME)
-    password = config.get(CONF_PASSWORD)
-    time_period = config.get("time_period", 7)
 
-    if not username or not password:
-        log.error("Username and password must be provided")
-        return
+    api = hass.data[DOMAIN]
+    assert isinstance(api, HydrolinkAPI)
+    time_period = config[CONF_TIME_PERIOD]
+    sensors = [WaterMeter(meter, time_period) for meter in api.meter_data["meters"]]
+    async_add_entities(sensors)
+    return True
 
-    try:
-        token = login_to_api(username, password)
-        meter_data = fetch_meter_data(token)
-        entities = [WaterMeter(meter, time_period) for meter in meter_data["meters"]]
-        add_entities(entities, True)
-    except Exception as e:
-        log.error(f"Failed to setup Hydrolink sensors: {e}")
 
-def login_to_api(username, password):
-    """Login to the API and return the token."""
-    headers = {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "Connection": "close"
-    }
-    payload = {
-        "username": username,
-        "password": password
-    }
+class HydrolinkAPI:
+    """Holds the data"""
 
-    response = requests.post(LOGIN_ENDPOINT, headers=headers, data=json.dumps(payload))
-    if response.status_code == 200:
-        response_data = response.json()
-        if "token" in response_data:
-            return response_data["token"]
-        else:
-            raise RuntimeError("Login failed: Token not found in the response.")
-    else:
-        raise RuntimeError(f"Login failed: {response.status_code} - {response.text}")
+    def __init__(self, hass: HomeAssistant, config: ConfigType) -> None:
+        self._hass = hass
+        self._token = None
+        self.username = config[CONF_USERNAME]
+        self.password = config[CONF_PASSWORD]
+        self.meter_data = defaultdict(dict)
 
-def fetch_meter_data(token):
-    """Fetch meter data from the API."""
-    headers = {
-        "Accept": "application/json",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "token": token
-    }
+        interval = timedelta(hours=23, minutes=59, seconds=59)
+        cancel = async_track_time_interval(hass, self._async_refresh, interval)
+        self.recurring_tasks = [cancel]
 
-    response = requests.post(METER_DATA_ENDPOINT, headers=headers, data=json.dumps(payload))
-    if response.status_code == 200:
-        return response.json()
-    else:
-        raise RuntimeError(f"Failed to fetch meter data: {response.status_code} - {response.text}")
+    async def _async_refresh(self):
+        """Refresh the meter data from the API."""
+        try:
+            _LOGGER.info("refresh")
+            session = async_get_clientsession(self._hass)
+            if self._token is not None:
+                try:
+                    await self._async_fetch_meter_data(session)
+                    return
+                except Exception as e:
+                    _LOGGER.info(f"Failed to refresh meter data: {e}")
+                    _LOGGER.info("Trying to update the access token.")
+            await self._async_login_to_api(session)
+            await self._async_fetch_meter_data(session)
+        except Exception as e:
+            _LOGGER.error(f"Failed to refresh meter data: {e}")
+
+    async def _async_login_to_api(self, session: ClientSession) -> None:
+        """Login to the API and return the token."""
+        _LOGGER.info(f"Logging in to the Hydrolink API with username {self.username}.")
+
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "Connection": "close"
+        }
+        payload = {
+            "username": self.username,
+            "password": self.password
+        }
+
+        async with session.post(LOGIN_ENDPOINT, headers=headers, json=payload) as response:
+            if response.status == 200:
+                response_data = response.json()
+                if "token" in response_data:
+                    self._token = response_data["token"]
+                else:
+                    raise RuntimeError("Login failed: Token not found in the response.")
+            else:
+                raise RuntimeError(f"Login failed: {response.status} - {response.text}")
+
+    async def _async_fetch_meter_data(self, session: ClientSession) -> None:
+        """Fetch meter data from the API."""
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "token": self._token
+        }
+
+        async with session.post(METER_DATA_ENDPOINT, headers=headers, json=payload) as response:
+            if response.status == 200:
+                self.meter_data = response.json()
+            else:
+                raise RuntimeError(f"Failed to fetch meter data: {response.status} - {response.text}")
+
 
 class WaterMeter(Entity):
-    """Representation of a Hydrolink sensor."""
+    """A Hydrolink water meter.
 
-    def __init__(self, meter, time_period):
+    Args:
+        api: An instance of the HydrolinkAPI class.
+        meter: A dictionary containing meter data, including:
+            - secondaryAddress: The unique identifier for the meter.
+            - latestValue: The latest reading from the meter.
+            - warm: A boolean indicating if the meter is for warm water.
+            - dailyReadings: A list of daily readings, each containing:
+                - created: A timestamp for the reading.
+                - subtraction: The change after the previous reading.
+        time_period: The number of days of historical data to keep.
+    """
+
+    def __init__(self, api: HydrolinkAPI, meter: dict[str, Any], time_period: int) -> None:
         """Initialize the sensor."""
-        warm_or_cold = "Warm" if meter["warm"] else "Cold"
-        self._address = meter['secondaryAddress']
-        self._name = f"{warm_or_cold} {self._address}"
+        self._api = api
+        self._address = meter["secondaryAddress"]
+        self._state = meter["latestValue"]
+        self._attributes = {"warm": meter["warm"]}
         self._time_period = time_period
-        self._state = None
-        self._attributes = {}
 
     @property
     def name(self):
         """Return the name of the sensor."""
-        return self._name
+        return self._address
 
     @property
     def state(self):
@@ -95,25 +150,24 @@ class WaterMeter(Entity):
         """Return the state attributes."""
         return self._attributes
 
-    def update(self):
+    async def async_update(self):
         """Fetch new state data for the sensor."""
         try:
-            token = login_to_api(self.hass.data[DOMAIN][CONF_USERNAME], self.hass.data[DOMAIN][CONF_PASSWORD])
-            meter_data = fetch_meter_data(token)
+            def _date_from_timestamp(timestamp: int) -> str:
+                return datetime.fromtimestamp(timestamp / 1000.0).strftime("%Y-%m-%d")
 
-            for meter in meter_data["meters"]:
+            for meter in self._api.meter_data["meters"]:
                 if meter["secondaryAddress"] == self._address:
                     self._state = meter["latestValue"]
-                    daily_readings = meter["dailyReadings"]
-                    self._attributes = {
-                        "readings": [
-                            {
-                                "date": datetime.fromtimestamp(reading["created"] / 1000.0).strftime("%Y-%m-%d"),
-                                "subtraction": reading["subtraction"]
-                            }
-                            for reading in daily_readings[-self._time_period:]
-                        ]
-                    }
+                    readings = meter["dailyReadings"][-self._time_period:]
+                    self._attributes["readings"] = [
+                        {
+                            "date": _date_from_timestamp(reading["created"]),
+                            "subtraction": reading["subtraction"]
+                        }
+                        for reading in readings
+                    ]
+                    _LOGGER.info(f"Updated Hydrolink sensor {self._address}.")
                     break
         except Exception as e:
-            log.error(f"Failed to update Hydrolink sensor {self._name}: {e}")
+            _LOGGER.error(f"Failed to update the Hydrolink sensor {self._address}: {e}")
