@@ -1,10 +1,11 @@
 # Hydrolink integration for Home Assistant
 
-Hydrolink is a remote water meter reading service provided by Koka Oy. This integration reads the meter readings from
-the Hydrolink API.
+Hydrolink is a remote water meter reading service provided by Koka Oy. This is an unofficial Home Assistant integration
+for Hydrolink meters.
 
-The integration creates a sensor for each meter found from the API. The current value of the sensors is the current
-meter reading. The sensor contains the following attributes:
+The integration reads the Hydrolink meters and periodically updates their readings from the API. It creates a sensor for
+each meter that it finds. The current value of a sensor is the current meter reading. A sensor contains also the
+following attributes:
 
 - `warm` — Indicates whether the meter is for warm water.
 - `daily_consumption` — Historical consumption for the past 7 days.
@@ -19,7 +20,7 @@ the ApexCharts card. Each entry contains three values:
 
 ## Configuration
 
-Confguration is very simple. You just need to provide your username and password to the Hydrolink API.
+Configuration is very simple. You just need to provide your username and password to the Hydrolink API.
 
 ```yaml
 sensor:
@@ -43,9 +44,9 @@ header:
   title: Water Consumption
   show: true
 series:
-  - entity: sensor.hydrolink_01234567
+  - entity: sensor.cold_water_meter_01234567
     type: column
-    data_generator: >
+    data_generator: |
       return entity.attributes.daily_consumption.map((entry, index) => {
         return [entry["timestamp"], entry["value"]];
       });
@@ -53,17 +54,19 @@ series:
 
 If you want to use another card, or you want to display the consumption for different intervals, the readings need to be
 cached and the periodical consumption needs to be computed from the meter readings. For this, Home Assistant provides
-the [Utility Meter](https://www.home-assistant.io/integrations/utility_meter/) integration.
+the [Utility Meter](https://www.home-assistant.io/integrations/utility_meter/) integration. You can create new Utility
+Meter helpers from [Settings > Devices & services > Helpers](https://my.home-assistant.io/redirect/helpers), or you can
+add them in `configuration.yaml`.
 
 ```yaml
 utility_meter:
   cold_water_consumption:
-    source: sensor.hydrolink_01234567
-    name: Cold Water Comsumption
+    source: sensor.cold_water_meter_01234567
+    name: Cold Water Consumption
     cycle: daily
   warm_water_consumption:
-    source: sensor.hydrolink_01234568
-    name: Warm Water Comsumption
+    source: sensor.warm_water_meter_01234567
+    name: Warm Water Consumption
     cycle: daily
 ```
 
