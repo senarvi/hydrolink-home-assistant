@@ -153,10 +153,18 @@ class WaterMeter(Entity):
         self._attributes = {"warm": meter["warm"]}
 
     @property
+    def unique_id(self):
+        return f"hydrolink_{self._address}"
+
+    @property
     def name(self):
         """Return the name of the sensor."""
         warm_or_cold = "Warm" if self._attributes["warm"] else "Cold"
         return f"{warm_or_cold} Water Meter {self._address}"
+
+    @property
+    def icon(self) -> str:
+        return "mdi:water-plus" if self._attributes["warm"] else "mdi:water-minus"
 
     @property
     def state(self):
@@ -167,10 +175,6 @@ class WaterMeter(Entity):
     def extra_state_attributes(self):
         """Return the state attributes."""
         return self._attributes
-
-    @property
-    def unique_id(self):
-        return f"hydrolink_{self._address}"
 
     async def async_update(self):
         """Fetch new state data for the sensor."""
@@ -183,10 +187,11 @@ class WaterMeter(Entity):
                     self._state = meter["latestValue"]
                     # Save the past 7 days in the "readings" attribute.
                     readings = meter["dailyReadings"][-7:]
-                    self._attributes["readings"] = [
+                    self._attributes["daily_consumption"] = [
                         {
+                            "timestamp": reading["created"],
                             "date": _date_from_timestamp(reading["created"]),
-                            "subtraction": reading["subtraction"]
+                            "value": reading["subtraction"],
                         }
                         for reading in readings
                     ]
