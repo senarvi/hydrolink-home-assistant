@@ -52,6 +52,8 @@ series:
       });
 ```
 
+![image](https://github.com/user-attachments/assets/110ae998-4640-40b7-a106-d1ec3866537c)
+
 If you want to use another card, or you want to display the consumption for different intervals, the readings need to be
 cached and the periodical consumption needs to be computed from the meter readings. For this, Home Assistant provides
 the [Utility Meter](https://www.home-assistant.io/integrations/utility_meter/) integration. You can create new Utility
@@ -87,3 +89,5 @@ entities:
   - entity: sensor.warm_water_consumption
     name: Warm
 ```
+
+![hydrolink-mini-graph-card](https://github.com/user-attachments/assets/6871eb43-5530-4a82-86a4-3a7c788b1fa6)

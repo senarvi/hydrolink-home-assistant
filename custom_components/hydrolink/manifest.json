@@ -1,11 +1,11 @@
 {
-  "codeowners": ["@senarvi"],
-  "config_flow": false,
-  "dependencies": [],
-  "documentation": "https://github.com/senarvi/hydrolink-home-assistant",
-  "domain": "hydrolink",
-  "iot_class": "cloud_polling",
-  "name": "Hydrolink",
-  "requirements": [],
-  "version": "0.0.1"
+    "domain": "hydrolink",
+    "name": "Hydrolink",
+    "codeowners": ["@senarvi"],
+    "config_flow": false,
+    "dependencies": [],
+    "documentation": "https://github.com/senarvi/hydrolink-home-assistant",
+    "iot_class": "cloud_polling",
+    "requirements": [],
+    "version": "0.0.1"
 }
