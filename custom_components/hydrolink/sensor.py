@@ -9,11 +9,15 @@ from typing import Any
 import voluptuous as vol
 
 import homeassistant.helpers.config_validation as cv
-from homeassistant.components.sensor import PLATFORM_SCHEMA
+from homeassistant.components.sensor import (
+    PLATFORM_SCHEMA,
+    SensorDeviceClass,
+    SensorEntity,
+    SensorStateClass,
+)
 from homeassistant.const import CONF_USERNAME, CONF_PASSWORD
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.typing import ConfigType
 
@@ -153,7 +157,7 @@ class HydrolinkAPI:
                 )
 
 
-class WaterMeter(Entity):
+class WaterMeter(SensorEntity):
     """A Hydrolink water meter.
 
     Args:
@@ -188,6 +192,18 @@ class WaterMeter(Entity):
     def icon(self) -> str:
         """Return the icon to use in the frontend."""
         return "mdi:water-plus" if self._attributes["warm"] else "mdi:water-minus"
+
+    @property
+    def state_class(self) -> SensorStateClass:
+        return SensorStateClass.TOTAL_INCREASING
+
+    @property
+    def device_class(self) -> SensorDeviceClass:
+        return SensorDeviceClass.WATER
+
+    @property
+    def unit_of_measurement(self) -> str:
+        return "L"
 
     @property
     def state(self) -> int:

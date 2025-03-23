@@ -3,6 +3,7 @@ import pytest
 from copy import deepcopy
 from unittest.mock import AsyncMock, patch, MagicMock
 
+from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 from homeassistant.const import CONF_USERNAME, CONF_PASSWORD
 
 from custom_components.hydrolink.const import (
@@ -78,6 +79,9 @@ def assert_water_meter_state(water_meter):
     assert water_meter.unique_id == "hydrolink_01234567"
     assert water_meter.name == "Warm Water Meter 01234567"
     assert water_meter.icon == "mdi:water-plus"
+    assert water_meter.state_class == SensorStateClass.TOTAL_INCREASING
+    assert water_meter.device_class == SensorDeviceClass.WATER
+    assert water_meter.unit_of_measurement == "L"
     assert water_meter.state == 100
     assert water_meter.extra_state_attributes["warm"] is True
     assert water_meter.extra_state_attributes["daily_consumption"] == [
